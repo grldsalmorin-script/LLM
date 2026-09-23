@@ -1,34 +1,46 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
-from .answer_generator import LocalAnswerGenerator
+from .answer_generator import ExtractiveAnswerGenerator
 from .chunker import TextChunker
 from .loader import DocumentLoader
 from .prompt_builder import PromptBuilder
 from .retriever import Retriever
 from .types import RagAnswer
-from .vector_store import InMemoryVectorStore
+from .vector_store import LocalJsonVectorStore
 
 
 class RagPipeline:
-    """End-to-end local RAG pipeline."""
+    """End-to-end no-key local RAG pipeline."""
 
-    def __init__(self, retriever: Retriever, prompt_builder: PromptBuilder, answer_generator: LocalAnswerGenerator) -> None:
+    def __init__(self, retriever: Retriever, prompt_builder: PromptBuilder, answer_generator: ExtractiveAnswerGenerator) -> None:
         self.retriever = retriever
         self.prompt_builder = prompt_builder
         self.answer_generator = answer_generator
 
     @classmethod
-    def from_directory(cls, docs_dir: str | Path, chunk_size: int = 90, overlap: int = 20, top_k: int = 4) -> "RagPipeline":
-        documents = DocumentLoader().load_directory(docs_dir)
-        chunks = TextChunker(chunk_size=chunk_size, overlap=overlap).split(documents)
-        vector_store = InMemoryVectorStore()
-        vector_store.add_chunks(chunks)
+    def from_directory(
+        cls,
+        docs_dir: str | Path,
+        chunk_size: int = 90,
+        overlap: int = 20,
+        top_k: int = 4,
+        index_path: str | Path = "data/index/local_vectors.json",
+        rebuild_index: bool = False,
+    ) -> "RagPipeline":
+        vector_store = LocalJsonVectorStore(index_path=index_path)
+        loaded = False if rebuild_index else vector_store.load()
+        if not loaded:
+            documents = DocumentLoader().load_directory(docs_dir)
+            chunks = TextChunker(chunk_size=chunk_size, overlap=overlap).split(documents)
+            vector_store.add_chunks(chunks)
+            vector_store.save()
+
         return cls(
             retriever=Retriever(vector_store, top_k=top_k),
             prompt_builder=PromptBuilder(),
-            answer_generator=LocalAnswerGenerator(),
+            answer_generator=ExtractiveAnswerGenerator(),
         )
 
     def query(self, question: str) -> RagAnswer:

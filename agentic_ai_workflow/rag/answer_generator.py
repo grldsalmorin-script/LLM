@@ -1,15 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from .embeddings import tokenize
 from .types import RetrievedChunk
 
 
-class LocalAnswerGenerator:
-    """Deterministic answer generator for local runs.
-
-    A production version can call Gemini/OpenAI here. The rest of the RAG pipeline
-    remains unchanged because this class only consumes question + retrieved chunks.
-    """
+class ExtractiveAnswerGenerator:
+    """Offline answer generator that extracts grounded sentences from retrieved chunks."""
 
     def answer(self, question: str, retrieved_chunks: list[RetrievedChunk]) -> str:
         if not retrieved_chunks:
@@ -17,17 +13,24 @@ class LocalAnswerGenerator:
 
         question_terms = set(tokenize(question))
         selected_sentences: list[str] = []
+        seen: set[str] = set()
+
         for item in retrieved_chunks:
             sentences = [segment.strip() for segment in item.chunk.text.replace("\n", " ").split(".") if segment.strip()]
-            for sentence in sentences:
-                if question_terms.intersection(tokenize(sentence)):
+            ranked = sorted(
+                sentences,
+                key=lambda sentence: len(question_terms.intersection(tokenize(sentence))),
+                reverse=True,
+            )
+            for sentence in ranked:
+                if sentence in seen:
+                    continue
+                if question_terms.intersection(tokenize(sentence)) or not selected_sentences:
                     selected_sentences.append(sentence)
+                    seen.add(sentence)
                 if len(selected_sentences) >= 4:
                     break
             if len(selected_sentences) >= 4:
                 break
 
-        if not selected_sentences:
-            selected_sentences = [retrieved_chunks[0].chunk.text]
-
-        return " ".join(selected_sentences) + "."
+        return " ".join(selected_sentences).rstrip(".") + "."

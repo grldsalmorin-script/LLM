@@ -1,4 +1,4 @@
-﻿# Agentic AI Workflow Sample
+# Agentic AI Workflow Sample
 
 This is a small, runnable reference implementation for explaining the Vibo-style AI workflow architecture in interviews.
 
@@ -6,7 +6,7 @@ It models four logical services:
 
 - Jasmine: user-facing assistant/orchestrator
 - Copilot: workflow planner that chooses registered tools
-- Gemini: LLM adapter that returns structured JSON-like output
+- Gemini: LLM adapter stand-in that returns structured JSON-like output
 - Nicole: accounting recommendation/review service
 
 The sample also includes:
@@ -14,29 +14,35 @@ The sample also includes:
 - Function Registry: contract catalog for tools/functions
 - Command Bus: in-memory stand-in for Pub/Sub
 - Async Handler: command consumer that runs handlers and publishes result events
-- Context Provider: structured context retrieval, plus an optional RAG-like document snippet path
+- Context Provider: structured context retrieval
+- Local RAG: offline document indexing, retrieval, answer generation, and citations
 
-Important: this is intentionally not a full production RAG stack. It demonstrates context retrieval and prompt grounding. A full RAG implementation would add chunking, embeddings, vector search, reranking, and source citation enforcement.
-
-## Run
+## Run the Workflow Demo
 
 ```powershell
-python -m agentic_ai_workflow.main
+uv run --no-project python -m agentic_ai_workflow.main
 ```
 
 Expected output shows Jasmine receiving a user request, Copilot selecting a registered function, the command bus dispatching a Nicole review command, and a result event returning to Jasmine.
-## Local RAG Implementation
 
-This repo now includes a complete local RAG pipeline:
+## Local No-Key RAG Implementation
+
+This repo includes a complete local RAG pipeline that does not require OpenAI, Gemini, Vertex AI, Pinecone, Chroma, Postgres, or any API key.
 
 1. `DocumentLoader` reads local `.md` and `.txt` files from `data/docs`.
 2. `TextChunker` splits documents into overlapping chunks.
-3. `BagOfWordsEmbedder` vectorizes chunks without external dependencies.
-4. `InMemoryVectorStore` performs cosine-similarity search.
+3. `LocalHashingEmbedder` creates deterministic local vectors.
+4. `LocalJsonVectorStore` persists vectors to `data/index/local_vectors.json`.
 5. `Retriever` returns top matching chunks.
 6. `PromptBuilder` builds a grounded context prompt.
-7. `LocalAnswerGenerator` creates a deterministic local answer.
+7. `ExtractiveAnswerGenerator` creates a deterministic local answer from retrieved text.
 8. `RagPipeline` returns the answer plus citations.
+
+Build or rebuild the local index:
+
+```powershell
+uv run --no-project python -m agentic_ai_workflow.rag.index_docs
+```
 
 Run the RAG demo:
 
@@ -62,9 +68,10 @@ Run tests:
 uv run --no-project --with Flask --with pytest pytest
 ```
 
-Production upgrade path:
+## Optional Production Upgrade Path
 
-- Replace `BagOfWordsEmbedder` with OpenAI or Vertex AI embeddings.
-- Replace `InMemoryVectorStore` with pgvector, Qdrant, Pinecone, Weaviate, or Elasticsearch.
-- Replace `LocalAnswerGenerator` with Gemini/OpenAI while preserving retrieved citations.
-- Add document ingestion jobs for PDFs, web pages, Google Drive, or app data.
+The default implementation is intentionally offline. Later, if you want managed AI services, replace these provider classes while keeping the same `RagPipeline` shape:
+
+- `LocalHashingEmbedder` -> OpenAI, Gemini, Vertex AI, or sentence-transformer embeddings
+- `LocalJsonVectorStore` -> pgvector, Qdrant, Pinecone, Weaviate, Chroma, or Elasticsearch
+- `ExtractiveAnswerGenerator` -> Gemini/OpenAI/local LLM answer generator

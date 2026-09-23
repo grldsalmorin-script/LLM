@@ -13,6 +13,7 @@ def test_rag_pipeline_returns_citations(tmp_path):
 
     assert result.answer
     assert result.citations
+    assert pipeline.provider == "local"
     assert index_path.exists()
     assert any("vibo_ai_workflows" in citation["source"] for citation in result.citations)
 
@@ -26,6 +27,26 @@ def test_rag_pipeline_loads_existing_local_index(tmp_path):
 
     assert vector_store.load() is True
     assert vector_store.search("function registry", top_k=1)
+
+
+def test_rag_pipeline_uses_provider_specific_default_index(monkeypatch):
+    monkeypatch.setenv("RAG_PROVIDER", "local")
+
+    docs_dir = Path(__file__).resolve().parents[1] / "data" / "docs"
+    pipeline = RagPipeline.from_directory(docs_dir)
+
+    assert pipeline.retriever.vector_store.index_path.as_posix() == "data/index/local_vectors.json"
+
+
+def test_rag_pipeline_rejects_unknown_provider(tmp_path):
+    docs_dir = Path(__file__).resolve().parents[1] / "data" / "docs"
+
+    try:
+        RagPipeline.from_directory(docs_dir, provider="watson", index_path=tmp_path / "bad.json")
+    except ValueError as exc:
+        assert "RAG_PROVIDER" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for unknown provider")
 
 
 def test_rag_pipeline_requires_question(tmp_path):

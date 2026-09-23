@@ -1,3 +1,4 @@
-﻿# Local dependencies for the optional Flask API and tests.
+# Local dependencies for the optional Flask API, tests, and Gemini provider.
 Flask>=3.0,<4.0
 pytest>=8.0,<9.0
+google-genai>=1.0,<2.0

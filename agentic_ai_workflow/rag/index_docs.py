@@ -7,9 +7,10 @@ from .pipeline import RagPipeline
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build the local no-key RAG index.")
+    parser = argparse.ArgumentParser(description="Build the RAG index for the selected provider.")
     parser.add_argument("--docs-dir", default="data/docs")
-    parser.add_argument("--index-path", default="data/index/local_vectors.json")
+    parser.add_argument("--index-path", default=None)
+    parser.add_argument("--provider", choices=["local", "gemini"], default=None)
     parser.add_argument("--chunk-size", type=int, default=90)
     parser.add_argument("--overlap", type=int, default=20)
     args = parser.parse_args()
@@ -18,11 +19,12 @@ def main() -> None:
         docs_dir=Path(args.docs_dir),
         chunk_size=args.chunk_size,
         overlap=args.overlap,
-        index_path=Path(args.index_path),
+        index_path=Path(args.index_path) if args.index_path else None,
         rebuild_index=True,
+        provider=args.provider,
     )
     row_count = len(pipeline.retriever.vector_store._rows)
-    print(f"Indexed {row_count} chunks into {args.index_path}")
+    print(f"Indexed {row_count} chunks into {pipeline.retriever.vector_store.index_path} using {pipeline.provider}")
 
 
 if __name__ == "__main__":

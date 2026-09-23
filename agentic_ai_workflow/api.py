@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -11,11 +11,18 @@ from agentic_ai_workflow.rag.pipeline import RagPipeline
 def create_app(docs_dir: str | None = None) -> Flask:
     app = Flask(__name__)
     resolved_docs_dir = Path(docs_dir or os.getenv("RAG_DOCS_DIR") or Path(__file__).resolve().parents[1] / "data" / "docs")
-    pipeline = RagPipeline.from_directory(resolved_docs_dir)
+    provider = os.getenv("RAG_PROVIDER", "local")
+    index_path = os.getenv("RAG_INDEX_PATH")
+    pipeline = RagPipeline.from_directory(resolved_docs_dir, provider=provider, index_path=index_path)
 
     @app.get("/health")
     def health():
-        return jsonify({"status": "healthy", "docs_dir": str(resolved_docs_dir)}), 200
+        return jsonify({
+            "status": "healthy",
+            "docs_dir": str(resolved_docs_dir),
+            "provider": pipeline.provider,
+            "index_path": str(pipeline.retriever.vector_store.index_path),
+        }), 200
 
     @app.post("/api/rag/query")
     def rag_query():
@@ -31,6 +38,7 @@ def create_app(docs_dir: str | None = None) -> Flask:
             "question": result.question,
             "answer": result.answer,
             "citations": result.citations,
+            "provider": pipeline.provider,
         }), 200
 
     return app

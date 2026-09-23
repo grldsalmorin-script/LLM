@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import re
 from collections import Counter
+from typing import Any
 
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
 _STOPWORDS = {
@@ -17,12 +19,9 @@ def tokenize(text: str) -> list[str]:
 
 
 class LocalHashingEmbedder:
-    """Deterministic local embedder that does not require API keys.
+    """Deterministic local embedder that does not require API keys."""
 
-    It maps tokens into a fixed-size vector using feature hashing. This is not as
-    semantically rich as OpenAI/Gemini embeddings, but it behaves like a real
-    embedding provider from the pipeline's perspective and works fully offline.
-    """
+    provider_name = "local"
 
     def __init__(self, dimensions: int = 384) -> None:
         if dimensions <= 0:
@@ -46,3 +45,50 @@ class LocalHashingEmbedder:
         if len(left) != len(right):
             raise ValueError("vectors must have the same dimensions")
         return sum(a * b for a, b in zip(left, right))
+
+
+class GeminiEmbedder:
+    """Gemini embedding provider using GEMINI_API_KEY.
+
+    Import is lazy so local tests and offline mode do not require google-genai.
+    """
+
+    provider_name = "gemini"
+
+    def __init__(self, model: str = "gemini-embedding-001", dimensions: int = 768, api_key: str | None = None) -> None:
+        self.model = model
+        self.dimensions = dimensions
+        key = api_key or os.getenv("GEMINI_API_KEY")
+        if not key:
+            raise ValueError("GEMINI_API_KEY is required when RAG_PROVIDER=gemini")
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise ImportError("Install google-genai to use RAG_PROVIDER=gemini") from exc
+        self._types = types
+        self.client = genai.Client(api_key=key)
+
+    def embed(self, text: str) -> list[float]:
+        config = self._types.EmbedContentConfig(
+            task_type="SEMANTIC_SIMILARITY",
+            output_dimensionality=self.dimensions,
+        )
+        result: Any = self.client.models.embed_content(
+            model=self.model,
+            contents=text,
+            config=config,
+        )
+        embeddings = getattr(result, "embeddings", None)
+        if embeddings:
+            values = getattr(embeddings[0], "values", embeddings[0])
+            return [float(value) for value in values]
+        embedding = getattr(result, "embedding", None)
+        values = getattr(embedding, "values", embedding)
+        if values is None:
+            raise RuntimeError("Gemini embedding response did not include vector values")
+        return [float(value) for value in values]
+
+    @staticmethod
+    def cosine(left: list[float], right: list[float]) -> float:
+        return LocalHashingEmbedder.cosine(left, right)

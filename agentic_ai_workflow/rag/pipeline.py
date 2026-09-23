@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Protocol
 
-from .answer_generator import ExtractiveAnswerGenerator
+from .answer_generator import ExtractiveAnswerGenerator, GeminiAnswerGenerator
 from .chunker import TextChunker
+from .embeddings import GeminiEmbedder, LocalHashingEmbedder
 from .loader import DocumentLoader
 from .prompt_builder import PromptBuilder
 from .retriever import Retriever
@@ -11,13 +14,19 @@ from .types import RagAnswer
 from .vector_store import LocalJsonVectorStore
 
 
-class RagPipeline:
-    """End-to-end no-key local RAG pipeline."""
+class AnswerGenerator(Protocol):
+    def answer(self, question: str, retrieved_chunks: list) -> str:
+        ...
 
-    def __init__(self, retriever: Retriever, prompt_builder: PromptBuilder, answer_generator: ExtractiveAnswerGenerator) -> None:
+
+class RagPipeline:
+    """End-to-end local RAG pipeline with local or Gemini providers."""
+
+    def __init__(self, retriever: Retriever, prompt_builder: PromptBuilder, answer_generator: AnswerGenerator, provider: str) -> None:
         self.retriever = retriever
         self.prompt_builder = prompt_builder
         self.answer_generator = answer_generator
+        self.provider = provider
 
     @classmethod
     def from_directory(
@@ -26,10 +35,27 @@ class RagPipeline:
         chunk_size: int = 90,
         overlap: int = 20,
         top_k: int = 4,
-        index_path: str | Path = "data/index/local_vectors.json",
+        index_path: str | Path | None = None,
         rebuild_index: bool = False,
+        provider: str | None = None,
     ) -> "RagPipeline":
-        vector_store = LocalJsonVectorStore(index_path=index_path)
+        resolved_provider = (provider or os.getenv("RAG_PROVIDER") or "local").strip().lower()
+        if resolved_provider == "gemini":
+            embedder = GeminiEmbedder(
+                model=os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
+                dimensions=int(os.getenv("GEMINI_EMBEDDING_DIMENSIONS", "768")),
+            )
+            answer_generator: AnswerGenerator = GeminiAnswerGenerator(
+                model=os.getenv("GEMINI_GENERATION_MODEL", "gemini-2.5-flash-lite")
+            )
+        elif resolved_provider == "local":
+            embedder = LocalHashingEmbedder()
+            answer_generator = ExtractiveAnswerGenerator()
+        else:
+            raise ValueError("RAG_PROVIDER must be 'local' or 'gemini'")
+
+        resolved_index_path = Path(index_path or f"data/index/{resolved_provider}_vectors.json")
+        vector_store = LocalJsonVectorStore(index_path=resolved_index_path, embedder=embedder)
         loaded = False if rebuild_index else vector_store.load()
         if not loaded:
             documents = DocumentLoader().load_directory(docs_dir)
@@ -40,7 +66,8 @@ class RagPipeline:
         return cls(
             retriever=Retriever(vector_store, top_k=top_k),
             prompt_builder=PromptBuilder(),
-            answer_generator=ExtractiveAnswerGenerator(),
+            answer_generator=answer_generator,
+            provider=resolved_provider,
         )
 
     def query(self, question: str) -> RagAnswer:
